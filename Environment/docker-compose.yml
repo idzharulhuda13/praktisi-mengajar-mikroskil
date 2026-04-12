@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  mysql-db:
+    image: mysql:8.0
+    container_name: mikroskil-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: db_rey_mikroskil
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mysql-data:/var/lib/mysql
+      - ../Topik 2/init_mysql.sql:/docker-entrypoint-initdb.d/init_mysql.sql
+    networks:
+      - db-network
+
+  mongodb:
+    image: mongo:latest
+    container_name: mikroskil-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: db_rey_mikroskil
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./mongo-data:/data/db
+    networks:
+      - db-network
+
+networks:
+  db-network:
+    driver: bridge
