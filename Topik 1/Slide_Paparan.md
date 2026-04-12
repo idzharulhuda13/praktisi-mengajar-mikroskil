@@ -44,6 +44,20 @@ Di industri modern, "orang data" bukan cuma satu jenis. Berikut perbedaannya:
 - **Kelebihan:** Fleksibel, Skalabilitas Horizontal tinggi, Cepat untuk data semi-terstruktur.
 - **Kapan Digunakan?** Aktivitas Log, Real-time Chat, Katalog Produk yang dinamis.
 
+### 2.3 Teori "Di Balik Layar": CAP Theorem & ACID vs BASE
+Dalam dunia database, tidak ada satu solusi untuk semua masalah (*No Silver Bullet*). Ada kompromi yang harus diambil:
+
+1. **CAP Theorem:**
+   - **Consistency:** Semua user melihat data yang sama di saat yang sama.
+   - **Availability:** Sistem selalu bisa diakses (baca/tulis) walau ada node yang mati.
+   - **Partition Tolerance:** Sistem tetap jalan meskipun koneksi antar cluster terputus.
+   - *Aturan Main:* Kita hanya bisa pilih **2 dari 3**.
+   - **Contoh:** **MongoDB (CP)** fokus pada konsistensi data, sementara **Cassandra (AP)** fokus pada ketersediaan sistem tanpa henti.
+
+2. **ACID vs BASE:**
+   - **ACID (RDBMS):** Transaksi harus sempurna (Bank). Fokus pada integritas.
+   - **BASE (NoSQL):** *Basically Available, Soft-state, Eventual Consistency*. Data tidak harus update detik itu juga di semua tempat (Contoh: Jumlah *Like* di Instagram).
+
 ---
 
 ## 3. Cerita dari Lapangan (Industry Experience)
@@ -57,6 +71,33 @@ Di industri modern, "orang data" bukan cuma satu jenis. Berikut perbedaannya:
 **Kasus:** Karena MongoDB tidak memaksa skema, developer bebas memasukkan field apa saja.
 - **Masalah:** Setelah 1 tahun, ada 10 variasi nama field untuk "tanggal lahir" (`dob`, `date_of_birth`, `birthdate`, `tgl_lahir`).
 - **Solusi Industri:** Tetap harus ada "Schema Validation" di level aplikasi atau menggunakan fitur validator di MongoDB.
+
+### 3.3 Data Modeling Lab: Normalization vs Denormalization
+Studi Kasus: Menyimpan data "E-commerce Order".
+
+**RDBMS (Normalized):**
+Data dipisah ke banyak tabel agar tidak redundan.
+```sql
+-- Membutuhkan JOIN
+SELECT * FROM orders
+JOIN users ON orders.user_id = users.id
+JOIN order_items ON orders.id = order_items.order_id;
+```
+
+**NoSQL (Denormalized):**
+Data digabung jadi satu dokumen agar cepat dibaca.
+```json
+// Tanpa JOIN, semua ada di satu tempat
+{
+  "order_id": "ORD001",
+  "user": { "name": "Budi", "email": "budi@mail.com" },
+  "items": [
+    { "product": "Laptop", "price": 15000000 },
+    { "product": "Mouse", "price": 200000 }
+  ]
+}
+```
+**Insight Analytics Engineer:** Di Data Warehouse (BigQuery), kita lebih suka pola **Denormalized** karena melakukan `JOIN` pada miliaran baris data itu sangat mahal dan lamban.
 
 ---
 
