@@ -5,7 +5,7 @@
 ![Status](https://img.shields.io/badge/Status-Live%20Project-success?style=for-the-badge)
 ![Tech](https://img.shields.io/badge/Tech-MySQL%20%7C%20MongoDB-orange?style=for-the-badge)
 
-Selamat datang di repositori mata kuliah **Praktisi Mengajar: Basis Data**. Program ini merupakan kolaborasi antara **REY** dan **Universitas Mikroskil** untuk membekali mahasiswa dengan keahlian database modern yang relevan dengan industri, dengan fokus pada peran *Analytics Engineer*.
+Selamat datang di repositori mata kuliah **Praktisi Mengajar: Basis Data**. Program ini merupakan kolaborasi antara **REY** dan **Universitas Mikroskil** untuk membekali mahasiswa dengan keahlian database modern yang relevan dengan industri.
 
 ---
 
