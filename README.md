@@ -59,7 +59,6 @@ Mahasiswa ditantang untuk menyelesaikan 4 mini-project yang merepresentasikan ta
 ├── Topik 2/                  # Praktik MySQL (Script & Slides)
 ├── Topik 3/                  # Praktik MongoDB (Script & Slides)
 ├── Tugas Proyek/             # Panduan Proyek & Rubrik Penilaian
-└── TOR Praktisi Mengajar...  # Term of Reference Mata Kuliah
 ```
 
 ---
