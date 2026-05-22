@@ -1,0 +1,11 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mikroskil-mysql-topik2
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: db_rey_mikroskil
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./init_mysql.sql:/docker-entrypoint-initdb.d/init.sql
