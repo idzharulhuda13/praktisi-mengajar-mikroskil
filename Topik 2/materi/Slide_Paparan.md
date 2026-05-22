@@ -57,8 +57,26 @@ AI sangat lihai membuatkan skrip Stored Procedure yang panjang:
 
 ---
 
+## 5. Live Demo 2: AI-Augmented Analysis (Gemini + MySQL)
+Tidak hanya membuat query manual, kita bisa menggunakan LLM untuk mempercepat analisis:
+
+### Pipeline:
+1. **Berikan Schema** -> Gemini tahu tabel dan kolom yang tersedia
+2. **Tanya dalam Bahasa Manusia** -> "Berapa user aktif per cohort bulan?"
+3. **Gemini Generate SQL** -> LLM translate pertanyaan ke query
+4. **Execute & Dapat Hasil** -> Query dijalankan di MySQL
+5. **Gemini Analyze** -> LLM menjelaskan insight dalam bahasa Indonesia
+
+### Kenapa Ini Penting?
+- Analytics Engineer modern tidak hanya menulis SQL — mereka **memformulasikan pertanyaan bisnis yang tepat**
+- AI membantu mempercepat eksplorasi, tapi **human review tetap wajib**
+- Bukan menggantikan skill SQL — tapi **mengamplifikasi** kemampuan analisis
+
+---
+
 ## Ayo Masuk ke Live Code!
 Kita akan mempraktikkan cara membuat:
 1. **View** untuk memantau Cohort.
 2. **Logic Statistik** (Z-Score & Normalization) untuk Ranking User.
 3. **Trigger** untuk automasi data.
+4. **Bonus Demo**: Gemini API + MySQL — AI generate SQL & analisis otomatis.
