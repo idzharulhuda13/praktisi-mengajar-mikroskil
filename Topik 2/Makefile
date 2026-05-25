@@ -1,4 +1,4 @@
-.PHONY: help setup up down db-sync mysql-shell notebook test clean
+.PHONY: help setup up down db-sync load-data mysql-shell notebook test clean
 
 help: ## Show this help message
 	@echo "Demo 2: Gemini API + MySQL Analysis"
@@ -28,11 +28,14 @@ down: ## Stop and remove MySQL container
 	@docker compose down
 	@echo "MySQL container stopped"
 
-db-sync: ## Re-create MySQL container with fresh data (runs init_mysql.sql)
+db-sync: ## Re-create MySQL container with fresh schema (runs init_mysql.sql)
 	@docker compose down -v
 	@docker compose up -d
 	@sleep 5
 	@echo "Fresh database created!"
+
+load-data: ## Load CSVs from ./data/ into MySQL tables
+	@uv run python load_data.py
 
 mysql-shell: ## Open MySQL CLI shell in the container
 	@docker exec -it mikroskil-mysql-topik2 mysql -uroot -ppassword db_rey_mikroskil

@@ -4,6 +4,7 @@ USE db_rey_mikroskil;
 
 -- PROJECT 1: Membership Cohort Analysis
 -- Table: subscriptions
+-- (loader maps XLSX `join_date` -> start_date, `termination_date` -> end_date)
 CREATE TABLE IF NOT EXISTS subscriptions (
     subscription_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -12,75 +13,31 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     status VARCHAR(20) DEFAULT 'active'
 );
 
--- Seed Data Project 1
-INSERT INTO subscriptions (user_id, start_date, end_date, status) VALUES
-(1, '2025-01-10', NULL, 'active'),
-(2, '2025-01-15', '2025-03-15', 'inactive'),
-(3, '2025-01-20', NULL, 'active'),
-(4, '2025-02-05', NULL, 'active'),
-(5, '2025-02-12', '2025-04-12', 'inactive'),
-(6, '2025-02-25', NULL, 'active'),
-(7, '2025-03-01', NULL, 'active'),
-(8, '2025-03-10', NULL, 'active');
-
 -- PROJECT 2: User Rank & Engagement Modeling
--- Table: users (master table)
-CREATE TABLE IF NOT EXISTS users (
-    user_id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100),
-    email VARCHAR(100) UNIQUE
+-- Table: user_logins (per-user last-login record from app)
+CREATE TABLE IF NOT EXISTS user_logins (
+    login_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    platform VARCHAR(50),
+    last_login_at DATETIME
 );
 
-INSERT INTO users (name, email) VALUES
-('Budi', 'budi@email.com'),
-('Ani', 'ani@email.com'),
-('Siti', 'siti@email.com'),
-('Joko', 'joko@email.com'),
-('Rina', 'rina@email.com');
-
--- Table: notifications (engagement)
-CREATE TABLE IF NOT EXISTS notifications (
-    notif_id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT,
-    type VARCHAR(50),
-    is_opened BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-INSERT INTO notifications (user_id, type, is_opened) VALUES
-(1, 'daily_reminder', TRUE),
-(1, 'promo', TRUE),
-(2, 'daily_reminder', FALSE),
-(3, 'health_tip', TRUE);
-
--- Table: reyfit_logs (fitness)
+-- Table: reyfit_logs (monthly fitness aggregate)
 CREATE TABLE IF NOT EXISTS reyfit_logs (
     log_id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT,
-    steps INT,
-    calories_burned FLOAT,
-    log_date DATE
+    user_id INT NOT NULL,
+    active_month DATE NOT NULL,
+    step_counts INT,
+    total_hydration_ml INT
 );
 
-INSERT INTO reyfit_logs (user_id, steps, calories_burned, log_date) VALUES
-(1, 10000, 400, '2025-04-01'),
-(1, 8000, 320, '2025-04-02'),
-(2, 2000, 80, '2025-04-01'),
-(3, 12000, 480, '2025-04-01');
-
--- Table: health_diaries (health entries)
+-- Table: health_diaries (monthly diary-entry count)
 CREATE TABLE IF NOT EXISTS health_diaries (
     diary_id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT,
-    mood VARCHAR(50),
-    symptoms TEXT,
-    created_at DATE
+    user_id INT NOT NULL,
+    active_month DATE NOT NULL,
+    count_diaries INT
 );
-
-INSERT INTO health_diaries (user_id, mood, created_at) VALUES
-(1, 'happy', '2025-04-01'),
-(1, 'neutral', '2025-04-02'),
-(3, 'happy', '2025-04-01');
 
 -- Table for storing scores (Project 2 output)
 CREATE TABLE IF NOT EXISTS user_engagement_scores (
@@ -91,3 +48,22 @@ CREATE TABLE IF NOT EXISTS user_engagement_scores (
     segment VARCHAR(50),
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+-- Derived view: users (no PII — built from activity tables)
+-- Lists every distinct user_id with their earliest and latest observed activity.
+CREATE OR REPLACE VIEW users AS
+SELECT
+    user_id,
+    MIN(activity_date) AS first_activity,
+    MAX(activity_date) AS last_activity
+FROM (
+    SELECT user_id, start_date AS activity_date FROM subscriptions
+    UNION ALL
+    SELECT user_id, DATE(last_login_at) FROM user_logins
+    UNION ALL
+    SELECT user_id, active_month FROM reyfit_logs
+    UNION ALL
+    SELECT user_id, active_month FROM health_diaries
+) AS all_activities
+WHERE user_id IS NOT NULL
+GROUP BY user_id;

@@ -60,7 +60,9 @@ Yang harus terlihat:
 - `Makefile` — command center untuk semua operasi
 - `docker-compose.yml` — konfigurasi MySQL container
 - `pyproject.toml` — daftar Python dependencies
-- `init_mysql.sql` — schema + data awal database
+- `init_mysql.sql` — schema database (tanpa data — data diload dari XLSX)
+- `load_data.py` — loader yang baca XLSX dan insert ke MySQL
+- `data/` — folder berisi XLSX dari REY (sudah disediakan dosen, gitignored)
 - `gemini_mysql_demo.ipynb` — Jupyter Notebook untuk Demo 2
 - `materi/Slide_Paparan.md` — materi presentasi
 - `materi/Live_Code_MySQL.md` — script SQL untuk Demo 1
@@ -80,7 +82,7 @@ Apa yang terjadi:
 - Docker akan download image MySQL 8.0 (jika belum ada)
 - Buat container bernama `mikroskil-mysql-topik2`
 - Jalankan `init_mysql.sql` otomatis saat pertama kali start
-- Database `db_rey_mikroskil` dibuat dengan 5 tabel + data contoh
+- Database `db_rey_mikroskil` dibuat dengan 4 tabel + 1 view (masih kosong — belum ada data)
 
 Verifikasi container running:
 ```bash
@@ -88,6 +90,33 @@ docker ps
 ```
 
 Harusnya terlihat container `mikroskil-mysql-topik2` dengan status "Up".
+
+---
+
+### 1.1.5 Load Data dari XLSX
+
+File XLSX dari REY sudah ada di folder `data/`. Sekarang load isinya ke MySQL:
+
+```bash
+make load-data
+```
+
+Apa yang terjadi:
+- Script `load_data.py` baca 2 file XLSX di `data/`
+- Transform kolom (misal `join_date` → `start_date`, derive `status` dari ada/tidaknya `termination_date`)
+- TRUNCATE tabel lama lalu INSERT data baru
+- Total 4 tabel terisi: `subscriptions` (~5.4k baris), `user_logins` (~258), `reyfit_logs` (~1k), `health_diaries` (~230)
+
+Output yang diharapkan:
+```
+  subscriptions: 5431 rows
+  user_logins:   258 rows
+  reyfit_logs:   1058 rows
+  health_diaries:230 rows
+Done.
+```
+
+> **Kenapa load terpisah dari `init_mysql.sql`?** Schema (struktur tabel) jarang berubah, tapi data bisa di-refresh kapan saja tanpa drop database. Pattern ini umum di production data pipeline: schema versioned di code, data di-load dari sumber eksternal.
 
 ---
 
@@ -117,55 +146,92 @@ Output yang diharapkan:
 | Tables_in_db_rey_mikroskil  |
 +-----------------------------+
 | health_diaries              |
-| notifications               |
 | reyfit_logs                 |
 | subscriptions               |
 | user_engagement_scores      |
+| user_logins                 |
 | users                       |
 +-----------------------------+
 ```
 
-Lihat data di setiap tabel:
+Lihat data di setiap tabel. Karena dataset real-nya besar, pakai `LIMIT 5`:
 
 ```sql
--- Tabel subscriptions (data langganan user)
-SELECT * FROM subscriptions;
+-- Tabel subscriptions (data langganan user dari REY)
+SELECT * FROM subscriptions LIMIT 5;
+SELECT COUNT(*) FROM subscriptions;
+```
+
+Output (contoh — angka aktual tergantung data XLSX):
+```
++-----------------+---------+------------+----------+----------+
+| subscription_id | user_id | start_date | end_date | status   |
++-----------------+---------+------------+----------+----------+
+|               1 |   32095 | 2024-01-02 | NULL     | active   |
+|               2 |   32142 | 2024-01-03 | NULL     | active   |
+|               3 |   32071 | 2024-01-03 | NULL     | active   |
+|               4 |   32119 | 2024-01-03 | NULL     | active   |
+|               5 |   31400 | 2024-01-04 | NULL     | active   |
++-----------------+---------+------------+----------+----------+
+
++----------+
+| COUNT(*) |
++----------+
+|     5431 |
++----------+
+```
+
+```sql
+-- View users (derived dari tabel aktivitas — user_id, first_activity, last_activity)
+SELECT * FROM users LIMIT 5;
+```
+
+```sql
+-- Tabel user_logins (record last login per user/platform)
+SELECT * FROM user_logins LIMIT 5;
 ```
 
 Output:
 ```
-+-----------------+---------+------------+------------+----------+
-| subscription_id | user_id | start_date | end_date   | status   |
-+-----------------+---------+------------+------------+----------+
-|               1 |       1 | 2025-01-10 | NULL       | active   |
-|               2 |       2 | 2025-01-15 | 2025-03-15 | inactive |
-|               3 |       3 | 2025-01-20 | NULL       | active   |
-|               4 |       4 | 2025-02-05 | NULL       | active   |
-|               5 |       5 | 2025-02-12 | 2025-04-12 | inactive |
-|               6 |       6 | 2025-02-25 | NULL       | active   |
-|               7 |       7 | 2025-03-01 | NULL       | active   |
-|               8 |       8 | 2025-03-10 | NULL       | active   |
-+-----------------+---------+------------+------------+----------+
++----------+---------+----------+----------------------------+
+| login_id | user_id | platform | last_login_at              |
++----------+---------+----------+----------------------------+
+|        1 |      39 | android  | 2025-05-24 04:30:25.187000 |
+|        2 |      67 | ios      | 2025-04-08 05:10:23.950000 |
+|        3 |      76 | ios      | 2025-02-08 05:04:13.896000 |
++----------+---------+----------+----------------------------+
 ```
 
 ```sql
--- Tabel users (data master user)
-SELECT * FROM users;
+-- Tabel reyfit_logs (agregat bulanan: langkah & hidrasi)
+SELECT * FROM reyfit_logs LIMIT 5;
+```
+
+Output:
+```
++--------+---------+--------------+-------------+--------------------+
+| log_id | user_id | active_month | step_counts | total_hydration_ml |
++--------+---------+--------------+-------------+--------------------+
+|      1 |      67 | 2024-01-01   | NULL        |               3500 |
+|      2 |      67 | 2024-02-01   | NULL        |               NULL |
+|      3 |      67 | 2024-03-01   | NULL        |               NULL |
++--------+---------+--------------+-------------+--------------------+
 ```
 
 ```sql
--- Tabel notifications (log notifikasi)
-SELECT * FROM notifications;
+-- Tabel health_diaries (jumlah catatan diary per bulan per user)
+SELECT * FROM health_diaries LIMIT 5;
 ```
 
-```sql
--- Tabel reyfit_logs (log aktivitas fitness)
-SELECT * FROM reyfit_logs;
+Output:
 ```
-
-```sql
--- Tabel health_diaries (catatan kesehatan)
-SELECT * FROM health_diaries;
++----------+---------+--------------+---------------+
+| diary_id | user_id | active_month | count_diaries |
++----------+---------+--------------+---------------+
+|        1 |      39 | 2024-01-01   |             8 |
+|        2 |      39 | 2024-06-01   |             1 |
+|        3 |      76 | 2024-01-01   |             2 |
++----------+---------+--------------+---------------+
 ```
 
 ```sql
@@ -173,7 +239,9 @@ SELECT * FROM health_diaries;
 SELECT * FROM user_engagement_scores;
 ```
 
-> **Penjelasan**: Kita punya 6 tabel. `subscriptions` menyimpan data langganan, `users` adalah master data user, dan 3 tabel (`notifications`, `reyfit_logs`, `health_diaries`) menyimpan aktivitas user. Tabel `user_engagement_scores` masih kosong — nanti akan kita isi lewat Stored Procedure.
+> **Penjelasan**: Kita punya 4 tabel data + 1 view + 1 tabel hasil. `subscriptions` menyimpan data langganan (~5.4k baris), dan 3 tabel (`user_logins`, `reyfit_logs`, `health_diaries`) menyimpan aktivitas user. `users` adalah **VIEW** turunan — di-generate dari UNION semua tabel aktivitas, jadi tidak menyimpan PII (nama/email). Tabel `user_engagement_scores` masih kosong — nanti akan kita isi lewat Stored Procedure.
+>
+> **Catatan kolom**: `step_counts` di `reyfit_logs` sering NULL karena data tracking awal — kita anggap user tetap aktif jika ada baris untuk bulan itu (proxy: jumlah bulan dengan record). Sama untuk `total_hydration_ml`.
 
 ---
 
@@ -197,7 +265,7 @@ SELECT
     start_date,
     end_date,
     DATE_FORMAT(start_date, '%Y-%m-01') AS cohort_month,
-    TIMESTAMPDIFF(MONTH, start_date, IFNULL(end_date, CURRENT_DATE)) AS sub_age_months
+    TIMESTAMPDIFF(MONTH, start_date, IFNULL(end_date, MAX(start_date) OVER ())) AS sub_age_months
 FROM subscriptions;
 ```
 
@@ -206,54 +274,54 @@ Penjelasan tiap kolom:
 - `sub_age_months`: Berapa bulan user sudah berlangganan (dari start_date sampai end_date, atau sampai hari ini jika masih active)
 - `IFNULL(end_date, CURRENT_DATE)`: Jika end_date NULL (masih active), pakai tanggal hari ini
 
-Sekarang query view-nya:
+Sekarang query view-nya (limit karena 5k+ baris):
 
 ```sql
-SELECT * FROM view_user_cohort;
+SELECT * FROM view_user_cohort LIMIT 5;
 ```
 
-Output:
+Output (contoh):
 ```
-+---------+------------+------------+--------------+----------------+
-| user_id | start_date | end_date   | cohort_month | sub_age_months |
-+---------+------------+------------+--------------+----------------+
-|       1 | 2025-01-10 | NULL       | 2025-01-01   |              5 |
-|       2 | 2025-01-15 | 2025-03-15 | 2025-01-01   |              2 |
-|       3 | 2025-01-20 | NULL       | 2025-01-01   |              5 |
-|       4 | 2025-02-05 | NULL       | 2025-02-01   |              4 |
-|       5 | 2025-02-12 | 2025-04-12 | 2025-02-01   |              2 |
-|       6 | 2025-02-25 | NULL       | 2025-02-01   |              4 |
-|       7 | 2025-03-01 | NULL       | 2025-03-01   |              3 |
-|       8 | 2025-03-10 | NULL       | 2025-03-01   |              3 |
-+---------+------------+------------+--------------+----------------+
++---------+------------+----------+--------------+----------------+
+| user_id | start_date | end_date | cohort_month | sub_age_months |
++---------+------------+----------+--------------+----------------+
+|   32095 | 2024-01-02 | NULL     | 2024-01-01   |             16 |
+|   32142 | 2024-01-03 | NULL     | 2024-01-01   |             16 |
+|   32071 | 2024-01-03 | NULL     | 2024-01-01   |             16 |
+|   32119 | 2024-01-03 | NULL     | 2024-01-01   |             16 |
+|   31400 | 2024-01-04 | NULL     | 2024-01-01   |             16 |
++---------+------------+----------+--------------+----------------+
 ```
 
-Sekarang agregasi — berapa user per cohort per umur langganan:
+Sekarang agregasi — berapa user per cohort bulan:
 
 ```sql
 SELECT 
     cohort_month,
-    sub_age_months,
     COUNT(user_id) AS total_users
 FROM view_user_cohort
-GROUP BY cohort_month, sub_age_months
-ORDER BY cohort_month, sub_age_months;
+GROUP BY cohort_month
+ORDER BY cohort_month;
 ```
 
-Output:
+Output (contoh — angka aktual tergantung data XLSX):
 ```
-+--------------+----------------+-------------+
-| cohort_month | sub_age_months | total_users |
-+--------------+----------------+-------------+
-| 2025-01-01   |              2 |           1 |
-| 2025-01-01   |              5 |           2 |
-| 2025-02-01   |              2 |           1 |
-| 2025-02-01   |              4 |           2 |
-| 2025-03-01   |              3 |           2 |
-+--------------+----------------+-------------+
++--------------+-------------+
+| cohort_month | total_users |
++--------------+-------------+
+| 2024-01-01   |          78 |
+| 2024-02-01   |          80 |
+| 2024-03-01   |          10 |
+| 2024-04-01   |         548 |
+| 2024-05-01   |         237 |
+| 2024-06-01   |         124 |
+| 2024-07-01   |         895 |
+| 2024-08-01   |          52 |
++--------------+-------------+
+... (18 cohorts total)
 ```
 
-> **Insight**: Dari cohort Januari, ada 2 user yang masih bertahan 5 bulan, dan 1 user yang berhenti di bulan ke-2. Ini pola retention yang bisa dianalisis lebih lanjut.
+> **Insight**: Cohort sangat tidak merata — Juli 2024 punya 895 user baru, sementara Maret cuma 10. Spike di April & Juli hint adanya campaign akuisisi. Pola seperti ini exactly yang tim growth ingin tahu — cohort analysis bikin mereka bisa attribute spike ke campaign mana.
 
 ---
 
@@ -277,7 +345,7 @@ CREATE OR REPLACE VIEW view_raw_activities AS
 SELECT 
     u.user_id,
     (
-        (SELECT COUNT(*) FROM notifications n WHERE n.user_id = u.user_id AND n.is_opened = TRUE) +
+        (SELECT COUNT(*) FROM user_logins l WHERE l.user_id = u.user_id) +
         (SELECT COUNT(*) FROM reyfit_logs r WHERE r.user_id = u.user_id) +
         (SELECT COUNT(*) FROM health_diaries h WHERE h.user_id = u.user_id)
     ) AS raw_activity
@@ -285,27 +353,31 @@ FROM users u;
 ```
 
 Penjelasan: Untuk setiap user, kita hitung total aktivitas dari 3 sumber:
-1. Notifikasi yang dibuka
-2. Reyfit logs (langkah kaki)
-3. Health diaries
+1. Jumlah record login (`user_logins`) — proxy untuk seberapa sering user login
+2. Jumlah bulan aktif di Reyfit (`reyfit_logs`) — proxy untuk konsistensi fitness
+3. Jumlah bulan ada catatan diary (`health_diaries`)
 
-Cek hasilnya:
+Kenapa pakai `COUNT(*)` bukan SUM(step_counts)? Karena `step_counts` banyak yang NULL di data awal — kita tetap mau kasih kredit ke user yang aktif (punya record bulan itu) walaupun step-nya belum tercatat.
+
+Cek hasilnya — tampilkan top 5 paling aktif:
 
 ```sql
-SELECT * FROM view_raw_activities;
+SELECT * FROM view_raw_activities 
+ORDER BY raw_activity DESC 
+LIMIT 5;
 ```
 
-Output:
+Output (contoh):
 ```
-+---------+---------------+
-| user_id | raw_activity  |
-+---------+---------------+
-|       1 |             6 |
-|       2 |             1 |
-|       3 |             4 |
-|       4 |             0 |
-|       5 |             0 |
-+---------+---------------+
++---------+--------------+
+| user_id | raw_activity |
++---------+--------------+
+|    1989 |           26 |
+|   31301 |           23 |
+|   28548 |           21 |
+|    1427 |           19 |
+|    1522 |           19 |
++---------+--------------+
 ```
 
 **Step B: Hitung Z-Score dengan Window Functions**
@@ -315,7 +387,9 @@ SELECT
     user_id,
     raw_activity,
     (raw_activity - AVG(raw_activity) OVER()) / NULLIF(STDDEV(raw_activity) OVER(), 0) as z_score
-FROM view_raw_activities;
+FROM view_raw_activities
+ORDER BY z_score DESC
+LIMIT 5;
 ```
 
 Penjelasan:
@@ -323,20 +397,20 @@ Penjelasan:
 - `STDDEV(raw_activity) OVER()`: Standar deviasi semua user
 - `NULLIF(..., 0)`: Mencegah division by zero jika semua user punya aktivitas sama
 
-Output:
+Output (contoh):
 ```
-+---------+---------------+----------+
-| user_id | raw_activity  | z_score  |
-+---------+---------------+----------+
-|       1 |             6 |  1.41421 |
-|       2 |             1 | -0.35355 |
-|       3 |             4 |  0.70711 |
-|       4 |             0 | -0.70711 |
-|       5 |             0 | -0.70711 |
-+---------+---------------+----------+
++---------+--------------+----------+
+| user_id | raw_activity | z_score  |
++---------+--------------+----------+
+|    1989 |           26 |  3.11    |
+|   31301 |           23 |  2.65    |
+|   28548 |           21 |  2.33    |
+|    1427 |           19 |  2.02    |
+|    1522 |           19 |  2.02    |
++---------+--------------+----------+
 ```
 
-> **Insight**: User 1 (Budi) punya z-score 1.41 — artinya dia 1.41 standar deviasi di atas rata-rata. Dia user paling aktif!
+> **Insight**: Rata-rata `raw_activity` adalah ~6 dengan stddev ~6.4. User `1989` punya z-score 3.11 — artinya dia 3+ standar deviasi di atas rata-rata, super outlier. Ini kandidat utama untuk segment "Superstar".
 
 ---
 
@@ -405,29 +479,34 @@ DELIMITER ;
 CALL sp_refresh_engagement_rankings();
 ```
 
-**Lihat hasilnya:**
+**Lihat hasilnya — top 5:**
 
 ```sql
-SELECT * FROM user_engagement_scores ORDER BY normalized_score DESC;
+SELECT * FROM user_engagement_scores ORDER BY normalized_score DESC LIMIT 5;
 ```
 
-Output:
+Output (contoh):
 ```
-+---------+----------------+----------+------------------+-----------+---------------------+
-| user_id | total_activity | z_score  | normalized_score | segment   | updated_at          |
-+---------+----------------+----------+------------------+-----------+---------------------+
-|       1 |              6 | 1.41421  |            100.0 | Superstar | 2025-04-XX XX:XX:XX |
-|       3 |              4 | 0.70711  |             66.7 | Average   | 2025-04-XX XX:XX:XX |
-|       2 |              1 | -0.35355 |             16.7 | Passive   | 2025-04-XX XX:XX:XX |
-|       4 |              0 | -0.70711 |              0.0 | Passive   | 2025-04-XX XX:XX:XX |
-|       5 |              0 | -0.70711 |              0.0 | Passive   | 2025-04-XX XX:XX:XX |
-+---------+----------------+----------+------------------+-----------+---------------------+
++---------+----------------+---------+------------------+-----------+---------------------+
+| user_id | total_activity | z_score | normalized_score | segment   | updated_at          |
++---------+----------------+---------+------------------+-----------+---------------------+
+|    1989 |             26 |    3.11 |           100.00 | Superstar | 2026-05-XX XX:XX:XX |
+|   31301 |             23 |    2.65 |            88.46 | Superstar | 2026-05-XX XX:XX:XX |
+|   28548 |             21 |    2.33 |            80.77 | Superstar | 2026-05-XX XX:XX:XX |
+|    1427 |             19 |    2.02 |            73.08 | Superstar | 2026-05-XX XX:XX:XX |
+|    1522 |             19 |    2.02 |            73.08 | Superstar | 2026-05-XX XX:XX:XX |
++---------+----------------+---------+------------------+-----------+---------------------+
+```
+
+Distribusi segmen:
+
+```sql
+SELECT segment, COUNT(*) FROM user_engagement_scores GROUP BY segment;
 ```
 
 > **Insight**: 
-> - User 1 (Budi) = Superstar (skor 100)
-> - User 3 (Siti) = Average (skor 66.7)
-> - User 2, 4, 5 = Passive (skor rendah)
+> - Top user (1989) jadi Superstar dengan skor sempurna 100
+> - Kebanyakan user di-segment 'Passive' karena distribusi `raw_activity` cukup right-skewed — banyak user dengan aktivitas minim, sedikit yang power-user
 > 
 > Normalisasi ke 0-100 membuat angka ini mudah dipahami tim bisnis. Mereka tidak perlu tahu apa itu z-score — cukup lihat "skor 0-100".
 
@@ -440,7 +519,7 @@ Ketik `exit` untuk keluar dari MySQL prompt.
 **Apa itu Trigger?**
 Kode yang otomatis jalan saat ada INSERT, UPDATE, atau DELETE di tabel tertentu.
 
-**Kasus**: Setiap ada user baru daftar, otomatis buatkan entry di `user_engagement_scores` dengan skor 0.
+**Kasus**: Setiap ada user baru yang mulai berlangganan (INSERT ke `subscriptions`), otomatis buatkan entry di `user_engagement_scores` dengan skor 0. Kita pakai `subscriptions` sebagai pemicu karena tabel `users` di project ini adalah VIEW — view tidak bisa di-INSERT dan tidak bisa punya trigger.
 
 Masuk lagi ke MySQL:
 
@@ -453,11 +532,11 @@ Buat Trigger:
 ```sql
 DELIMITER //
 
-CREATE TRIGGER trer_after_user_insert
-AFTER INSERT ON users
+CREATE TRIGGER trg_after_subscription_insert
+AFTER INSERT ON subscriptions
 FOR EACH ROW
 BEGIN
-    INSERT INTO user_engagement_scores (user_id, total_activity, z_score, normalized_score, segment)
+    INSERT IGNORE INTO user_engagement_scores (user_id, total_activity, z_score, normalized_score, segment)
     VALUES (NEW.user_id, 0, 0, 0, 'New Joiner');
 END //
 
@@ -465,20 +544,21 @@ DELIMITER ;
 ```
 
 Penjelasan:
-- `AFTER INSERT ON users`: Trigger ini jalan SETELAH ada INSERT di tabel `users`
-- `NEW.user_id`: Referensi ke user_id yang baru di-insert
+- `AFTER INSERT ON subscriptions`: Trigger ini jalan SETELAH ada INSERT di tabel `subscriptions`
+- `NEW.user_id`: Referensi ke user_id dari baris subscription yang baru di-insert
+- `INSERT IGNORE`: Skip jika user_id sudah punya entry (user lama yang re-subscribe tidak di-reset)
 - Otomatis buat entry di `user_engagement_scores` dengan skor 0 dan segment 'New Joiner'
 
-**Test Trigger — Insert User Baru:**
+**Test Trigger — Insert Subscription Baru:**
 
 ```sql
-INSERT INTO users (name, email) VALUES ('Andi', 'andi@email.com');
+INSERT INTO subscriptions (user_id, start_date, status) VALUES (999, '2025-05-01', 'active');
 ```
 
-Cek apakah trigger jalan — user baru harusnya otomatis muncul di `user_engagement_scores`:
+Cek apakah trigger jalan — user 999 harusnya otomatis muncul di `user_engagement_scores`:
 
 ```sql
-SELECT * FROM user_engagement_scores WHERE user_id = (SELECT LAST_INSERT_ID());
+SELECT * FROM user_engagement_scores WHERE user_id = 999;
 ```
 
 Output:
@@ -486,22 +566,75 @@ Output:
 +---------+----------------+---------+------------------+------------+---------------------+
 | user_id | total_activity | z_score | normalized_score | segment    | updated_at          |
 +---------+----------------+---------+------------------+------------+---------------------+
-|       6 |              0 |       0 |                0 | New Joiner | 2025-04-XX XX:XX:XX |
+|     999 |              0 |       0 |                0 | New Joiner | 2025-05-XX XX:XX:XX |
 +---------+----------------+---------+------------------+------------+---------------------+
 ```
 
-Trigger berhasil! User baru otomatis punya entry di tabel skor.
+Trigger berhasil! Subscriber baru otomatis punya entry di tabel skor.
 
 Tapi skornya masih 0 karena belum ada aktivitas. Refresh ranking untuk update:
 
 ```sql
 CALL sp_refresh_engagement_rankings();
-SELECT * FROM user_engagement_scores ORDER BY normalized_score DESC;
+SELECT * FROM user_engagement_scores WHERE user_id = 999;
 ```
 
 > **Gotcha (PENTING)**: Trigger itu "invisible" — developer lain mungkin tidak tahu ada logic yang otomatis jalan. Di perusahaan besar, trigger sering dihindari karena sulit di-debug. Lebih baik logic ditaruh di aplikasi (service layer).
 
 Ketik `exit` untuk keluar dari MySQL.
+
+---
+
+### 1.8 Export Hasil Query ke CSV
+
+Setelah analisis di MySQL, sering kita perlu share hasilnya ke tim non-teknis (Google Sheet, Excel). Pakai agregasi cohort sebagai contoh.
+
+> ⚠️ **PENTING — Baca dulu sebelum copy-paste**
+>
+> Perintah di bawah ini adalah **shell command** (dijalankan di terminal host), **BUKAN SQL**.
+> Kalau prompt kamu masih `mysql>`, perintah ini **tidak akan jalan** (akan terlihat seperti hang).
+>
+> **Langkah 1**: Pastikan kamu sudah keluar dari MySQL prompt. Di `mysql>` ketik:
+> ```
+> exit;
+> ```
+> Prompt akan kembali ke shell biasa (misal `$` atau `%`). Baru jalankan perintah di bawah.
+
+Copy-paste perintah berikut **dalam satu baris** (jangan dipecah jadi multi-line):
+
+```bash
+docker exec mikroskil-mysql-topik2 mysql -uroot -ppassword db_rey_mikroskil --batch -e "SELECT cohort_month, sub_age_months, COUNT(user_id) AS total_users FROM view_user_cohort GROUP BY cohort_month, sub_age_months ORDER BY cohort_month, sub_age_months;" 2>/dev/null | tr '\t' ',' > cohort_export.csv
+```
+
+File `cohort_export.csv` muncul di folder `Topik 2/`. Cek isinya:
+
+```bash
+head cohort_export.csv
+```
+
+Output:
+```
+cohort_month,total_users
+2024-01-01,78
+2024-02-01,80
+2024-03-01,10
+2024-04-01,548
+...
+```
+
+Cara kerja:
+- `docker exec mikroskil-mysql-topik2 mysql ...`: jalankan mysql client **dari host masuk ke container** — itu kenapa harus dari shell host, bukan dari dalam mysql
+- `--batch`: bikin output tab-separated (bukan ASCII table dengan border `|`)
+- `2>/dev/null`: buang warning "Using a password on the command line interface" agar tidak mengotori output
+- `tr '\t' ','`: ganti tab jadi koma (pakai `tr` bukan `sed` — `sed` di macOS tidak handle `\t` dengan benar)
+- `>`: redirect ke file di host
+
+> **Gotcha — kalau perintah seperti hang**: paling sering karena masih di dalam `mysql>` prompt. Cek prompt kamu. Kalau ada teks `mysql>` di awal baris, ketik `exit;` dulu. Penyebab lain: query di-pecah jadi multi-line dengan newline di tengah `-e "..."` — pakai versi satu-baris di atas. Atau: view `view_user_cohort` belum dibuat — selesaikan dulu Section 1.4.
+
+> **Kapan pilih yang mana?**
+> - **Cara A**: quick ad-hoc export, satu query, value-nya "rapi"
+> - **Cara B**: production pipeline, query besar, butuh hasil di server-side
+> - **Cara C**: butuh transformasi tambahan (rename kolom, format tanggal, gabung beberapa query) — Python paling enak
 
 ---
 
@@ -632,10 +765,10 @@ STEP 1: Testing MySQL Connection
 ============================================================
   Connected! Found 6 tables:
     - health_diaries
-    - notifications
     - reyfit_logs
     - subscriptions
     - user_engagement_scores
+    - user_logins
     - users
 
   Koneksi berhasil! Lanjut ke Step 2.
@@ -655,23 +788,15 @@ STEP 2: Schema Database
 Table: health_diaries
     diary_id  int
     user_id  int
-    mood  varchar(50)
-    symptoms  text
-    created_at  date
-
-Table: notifications
-    notif_id  int
-    user_id  int
-    type  varchar(50)
-    is_opened  tinyint(1)
-    created_at  timestamp
+    active_month  date
+    count_diaries  int
 
 Table: reyfit_logs
     log_id  int
     user_id  int
-    steps  int
-    calories_burned  float
-    log_date  date
+    active_month  date
+    step_counts  int
+    total_hydration_ml  int
 
 Table: subscriptions
     subscription_id  int
@@ -688,10 +813,16 @@ Table: user_engagement_scores
     segment  varchar(50)
     updated_at  timestamp
 
+Table: user_logins
+    login_id  int
+    user_id  int
+    platform  varchar(50)
+    last_login_at  datetime
+
 Table: users
     user_id  int
-    name  varchar(100)
-    email  varchar(100)
+    first_activity  date
+    last_activity  date
 
 Total: 6 tables loaded as context for Gemini.
 ```
@@ -723,16 +854,21 @@ STEP 3: Gemini Generate SQL
 
 `Shift + Enter`
 
-Output yang diharapkan:
+Output yang diharapkan (contoh — angka tergantung data XLSX):
 ```
 ============================================================
 STEP 4: Executing Gemini's SQL Query
 ============================================================
 
-  Query berhasil! 3 rows returned:
-    {'cohort_month': '2025-01', 'total_users': 3}
-    {'cohort_month': '2025-02', 'total_users': 3}
-    {'cohort_month': '2025-03', 'total_users': 2}
+  Query berhasil! 18 rows returned:
+    {'cohort_month': '2024-01', 'total_users': 78}
+    {'cohort_month': '2024-02', 'total_users': 80}
+    {'cohort_month': '2024-03', 'total_users': 10}
+    {'cohort_month': '2024-04', 'total_users': 548}
+    {'cohort_month': '2024-05', 'total_users': 237}
+    {'cohort_month': '2024-06', 'total_users': 124}
+    {'cohort_month': '2024-07', 'total_users': 895}
+    ... (11 more rows)
 
   Lanjut ke Step 5 untuk analisis dari Gemini.
 ```
@@ -752,11 +888,11 @@ STEP 5: Gemini Analyzes Results
   
   Berdasarkan hasil query, dapat dilihat bahwa:
   
-  1. **Ringkasan**: Terdapat 3 cohort bulan dengan distribusi user yang cukup merata. Cohort Januari dan Februari masing-masing memiliki 3 user, sedangkan Maret memiliki 2 user.
+  1. **Ringkasan**: Akuisisi sangat tidak merata antar bulan. Juli 2024 jadi puncak dengan 895 user baru, sementara Maret 2024 hanya 10 user — gap hampir 90x.
   
-  2. **Kesimpulan bisnis**: Pertumbuhan user baru terlihat konsisten di bulan Januari-Februari, namun ada penurunan di Maret. Tim marketing perlu investigasi apakah ada faktor musiman atau perubahan strategi akuisisi.
+  2. **Kesimpulan bisnis**: Spike di April (548) dan Juli (895) sangat menonjol — kemungkinan besar hasil campaign atau promo. Tim growth perlu cek kalender campaign untuk attribute ke event apa, lalu replikasi pola yang berhasil.
   
-  3. **Pola menarik**: Tidak ada lonjakan signifikan — pertumbuhan stabil tapi lambat.
+  3. **Pola menarik**: Distribusi heavily skewed — beberapa bulan dominan, banyak bulan kecil. Bukan tipe pertumbuhan organik linear, tapi event-driven.
 ```
 
 > **Ini adalah inti dari Demo 2**: Dari pertanyaan bisnis -> Gemini generate SQL -> Execute -> Gemini kasih insight dalam bahasa yang mudah dipahami. Seluruh pipeline otomatis.
@@ -772,7 +908,7 @@ Ini adalah demo lengkap — 3 skenario dijalankan otomatis:
 - Gemini generate SQL -> Execute -> Gemini Insight
 
 **Skenario 2: User Engagement Breakdown**
-- Pertanyaan: "Untuk setiap user, hitung total: (a) notifikasi dibuka, (b) reyfit_logs, (c) health_diaries"
+- Pertanyaan: "Untuk setiap user, hitung total: (a) login dari user_logins, (b) bulan aktif di reyfit_logs, (c) bulan ada catatan di health_diaries"
 - Gemini generate SQL (JOIN 3 tabel) -> Execute -> Gemini Insight
 
 **Skenario 3: Subscription Duration Analysis**
@@ -795,7 +931,7 @@ Setelah berhasil menjalankan semua cell, coba eksperimen ini:
 Di Cell 3 (Step 3), ganti `question_1` dengan pertanyaan kamu sendiri:
 
 ```python
-question_1 = "Berapa rata-rata jumlah notifikasi yang dibuka per user?"
+question_1 = "Berapa rata-rata total_hydration_ml per user dari tabel reyfit_logs (ignore NULL)?"
 ```
 
 Lihat SQL apa yang Gemini generate. Apakah valid? Apakah hasilnya sesuai ekspektasi?
@@ -805,8 +941,8 @@ Di Cell 8 (Step 6), tambahkan skenario ke-4 di list `scenarios`:
 
 ```python
 {
-    "title": "Skenario 4: User Paling Aktif",
-    "question": "Siapa user yang punya total reyfit_logs terbanyak? Tampilkan nama user dan jumlah log-nya.",
+    "title": "Skenario 4: User Paling Aktif di Reyfit",
+    "question": "Siapa 10 user dengan jumlah record reyfit_logs terbanyak? Tampilkan user_id dan jumlah bulan aktifnya.",
 },
 ```
 
@@ -935,10 +1071,14 @@ Topik 2/
 ├── docker-compose.yml          # MySQL-only Docker (lightweight)
 ├── pyproject.toml              # Python dependencies (uv)
 ├── .env.example                # Template untuk API key (copy jadi .env)
-├── .gitignore                  # Exclude .venv, .env, __pycache__
+├── .gitignore                  # Exclude .venv, .env, __pycache__, data/
 ├── gemini_mysql_demo.ipynb     # Jupyter Notebook (cell-by-cell)
 ├── WALKTHROUGH_LENGKAP.md      # Panduan lengkap (dokumen ini)
-├── init_mysql.sql              # Schema + seed data
+├── init_mysql.sql              # Schema saja (tanpa data)
+├── load_data.py                # Baca XLSX dari data/, INSERT ke MySQL
+├── data/                       # XLSX dari REY (gitignored, disediakan dosen)
+│   ├── [MIKROSKIL] Project 1 - Subscriptions Cohort Data.xlsx
+│   └── [MIKROSKIL] Project 2 - User Activity Data.xlsx
 └── materi/
     ├── Slide_Paparan.md        # Slide presentasi
     └── Live_Code_MySQL.md      # Live code script (Demo 1)
@@ -969,7 +1109,7 @@ Topik 2/
 1. **VIEW** — tabel virtual untuk menyederhanakan query (Cohort Analysis)
 2. **Window Functions** — AVG() OVER(), STDDEV() OVER() untuk statistik (Z-Score)
 3. **Stored Procedure** — logic terpusat yang bisa dipanggil satu kali (Refresh Ranking)
-4. **Trigger** — automasi saat INSERT/UPDATE/DELETE (Auto-seed new user)
+4. **Trigger** — automasi saat INSERT/UPDATE/DELETE (Auto-seed new subscription)
 
 ### Demo 2: AI-Augmented Analysis
 1. **Schema as Context** — kasih tahu AI struktur database kita
